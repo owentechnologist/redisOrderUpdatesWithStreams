@@ -44,8 +44,9 @@ public class Main {
     static String PROCESSOR_GROUP_NAME = "order_to_json_processors"; //TODO: implement the streamWorkerGroup logic
     static int NUMBER_OF_WORKER_THREADS = 2; //TODO: implement the streamWorkerGroup logic
     static long WORKER_SLEEP_TIME = 50l;//milliseconds //TODO: implement the streamWorkerGroup logic
-    static int WRITER_BATCH_SIZE = 200;
+    static int WRITER_BATCH_SIZE = 200; //TODO: reconsider will this use case ever fit using batches?
     static long WRITER_SLEEP_TIME = 50l;//milliseconds
+    static int NUMBER_OF_WRITER_THREADS = 1;
     static int HOW_MANY_ENTRIES = 100;
     static int MAIN_LISTENER_DURATION = 20000;//20 seconds
 
@@ -98,6 +99,10 @@ public class Main {
                 int argIndex = argList.indexOf("--howmanyworkers");
                 NUMBER_OF_WORKER_THREADS = Integer.parseInt(argList.get(argIndex + 1));
             }
+            if (argList.contains("--howmanywriters")) {
+                int argIndex = argList.indexOf("--howmanywriters");
+                NUMBER_OF_WRITER_THREADS = Integer.parseInt(argList.get(argIndex + 1));
+            }
             if (argList.contains("--writerbatchsize")) {
                 int argIndex = argList.indexOf("--writerbatchsize");
                 WRITER_BATCH_SIZE = Integer.parseInt(argList.get(argIndex + 1));
@@ -116,17 +121,20 @@ public class Main {
             }
         }
         ConnectionHelper connectionHelper = new ConnectionHelper(ConnectionHelper.buildURI(host,port,userName,password));
-        DummyOrderWriter dummyOrderWriter = new DummyOrderWriter(STREAM_NAME_BASE, connectionHelper.getPipeline())
-                .setBatchSize(WRITER_BATCH_SIZE)
-                .setJedisPooled(connectionHelper.getPooledJedis())
-                .setSleepTime(WRITER_SLEEP_TIME)
-                .setTotalNumberToWrite(HOW_MANY_ENTRIES);
-        dummyOrderWriter.kickOffStreamEvents();
+        DummyOrderWriter dummyOrderWriter = null;
+        for(int wt=0;wt<NUMBER_OF_WRITER_THREADS;wt++){
+            dummyOrderWriter = new DummyOrderWriter(STREAM_NAME_BASE, connectionHelper.getPipeline())
+                    .setBatchSize(WRITER_BATCH_SIZE)
+                    .setJedisPooled(connectionHelper.getPooledJedis())
+                    .setSleepTime(WRITER_SLEEP_TIME)
+                    .setTotalNumberToWrite(HOW_MANY_ENTRIES);
+            dummyOrderWriter.kickOffStreamEvents();
+        }
         long startTime = System.currentTimeMillis();
         while(System.currentTimeMillis()<startTime+MAIN_LISTENER_DURATION) {//20 seconds of this:by default
             try {
-                Thread.sleep(WORKER_SLEEP_TIME*2);
-                String streamKeyName =  dummyOrderWriter.getStreamName (STREAM_NAME_BASE,(int)System.nanoTime() % 20);
+                Thread.sleep(WORKER_SLEEP_TIME);
+                String streamKeyName =  dummyOrderWriter.getStreamName (STREAM_NAME_BASE,(int)System.nanoTime() % HOW_MANY_ENTRIES);
                 StreamInfo message = connectionHelper.getPooledJedis().xinfoStream(streamKeyName);
                 Map<String, String> entryFields = message.getLastEntry().getFields();
                 Set<String> keySet = entryFields.keySet();

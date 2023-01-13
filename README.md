@@ -1,7 +1,13 @@
+## This program is different from other Stream-based examples in that it uses potentially thousands or millions of Streams to allow for updates to thousands or millions of customerAccounts to be processed and consumed by interested Consumers 
 ## To run the program with the default settings (supplying the host and port for Redis) do:
 ```
 mvn compile exec:java -Dexec.cleanupDaemonThreads=false -Dexec.args="--host <host> --port <port>"
 ```
+### To run this program with 10 writer threads for a couple of thousand writes / second and with a large target # of entries
+```
+mvn compile exec:java -Dexec.cleanupDaemonThreads=false -Dexec.args="--host redis-10400.homelab.local --port 10400 --howmanyentries 2000000 --writersleeptime 0 --mainlistenerduration 120000 --howmanywriters 10"
+```
+### Note you can also specify --username and --password
 
 ### Initial State (implemented==Done) (before adding JSON and Search)
 ![initialWorkflow](./initialWorkflow.png)

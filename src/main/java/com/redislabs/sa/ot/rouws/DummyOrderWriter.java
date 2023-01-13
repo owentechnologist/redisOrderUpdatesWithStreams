@@ -21,6 +21,7 @@ import java.util.Map;
  *  *  - in_preparation
  *  *  - out_for_delivery
  *  *  - completed
+ *  *  - cancelled
  *
  */
 public class DummyOrderWriter {
@@ -94,8 +95,8 @@ public class DummyOrderWriter {
         if (jedis.exists(stringKeyName)) {
             //we use a String to keep track of the latest stage for that Order:
             nextStage = (int) jedis.incr(stringKeyName);
-            if(System.nanoTime()%50==0){
-                //1 in 50 orders gets cancelled
+            if(System.nanoTime()%222==0){
+                //every so often an order gets cancelled..
                 nextStage = 5;
             }
             if(nextStage<6){

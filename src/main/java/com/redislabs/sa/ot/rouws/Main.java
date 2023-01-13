@@ -26,6 +26,7 @@ import java.util.Set;
  *  - in_preparation
  *  - out_for_delivery
  *  - completed
+ *  - cancelled
  *  An interested listener can register for realtime updates to a particular Stream
  *
  *  TODO: A worker converts the Stream entries to Hash objects in Redis

@@ -3,6 +3,10 @@
 mvn compile exec:java -Dexec.cleanupDaemonThreads=false -Dexec.args="--host <host> --port <port>"
 ```
 
+### Initial State (implemented==true) (before adding JSON and Search)
+![initialWorkflow](./initialWorkflow.png)
+### Advanced State (implemented==false) (after adding JSON and Search)
+![advancedWorkflow](./advancedWorkflow.png)
 
 ### This program models a simple food delivery service
 It shows how to create streams for each customer that will:

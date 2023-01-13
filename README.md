@@ -3,9 +3,9 @@
 mvn compile exec:java -Dexec.cleanupDaemonThreads=false -Dexec.args="--host <host> --port <port>"
 ```
 
-### Initial State (implemented==true) (before adding JSON and Search)
+### Initial State (implemented==Done) (before adding JSON and Search)
 ![initialWorkflow](./initialWorkflow.png)
-### Advanced State (implemented==false) (after adding JSON and Search)
+### Advanced State (implemented==TODO) (after adding JSON and Search)
 ![advancedWorkflow](./advancedWorkflow.png)
 
 ### This program models a simple food delivery service

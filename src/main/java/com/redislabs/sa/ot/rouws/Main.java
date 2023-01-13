@@ -29,19 +29,24 @@ import java.util.Set;
  *  - cancelled
  *  An interested listener can register for realtime updates to a particular Stream
  *
- *  TODO: A worker converts the Stream entries to Hash objects in Redis
- *  TODO: These Hashes are indexed so that they can be searched ad-hoc
+ *  TODO: A worker converts the Stream entries to JSON objects in Redis
+ *  TODO: These JSON objects are indexed so that they can be searched ad-hoc
+ *  TODO: The RedisStreamWorkerGroupHelper will register the group and worker to that group
+ *  TODO: The worker will be the StreamEventToJSONProcessor
+ *  TODO: The JSON will have multiple Orders stored within it for searching
+ *  TODO: Searches will be possible at the order item level, contact name level and customer_details level
+ *  TODO: In this way, parent (customer) and child (orders) will be associated to one another
  */
 public class Main {
-    static boolean VERBOSE=false;
+    static boolean VERBOSE=false; //TODO: limit output
     static String STREAM_NAME_BASE = "rouws:";
-    static String LISTENER_GROUP_NAME = "order_listeners";
-    static String PROCESSOR_GROUP_NAME = "order_to_hash_processors";
-    static int NUMBER_OF_WORKER_THREADS = 2;
+    static String LISTENER_GROUP_NAME = "order_listeners"; //TODO: implement the streamWorkerGroup logic
+    static String PROCESSOR_GROUP_NAME = "order_to_json_processors"; //TODO: implement the streamWorkerGroup logic
+    static int NUMBER_OF_WORKER_THREADS = 2; //TODO: implement the streamWorkerGroup logic
+    static long WORKER_SLEEP_TIME = 50l;//milliseconds //TODO: implement the streamWorkerGroup logic
     static int WRITER_BATCH_SIZE = 200;
     static long WRITER_SLEEP_TIME = 50l;//milliseconds
     static int HOW_MANY_ENTRIES = 100;
-    static long WORKER_SLEEP_TIME = 50l;//milliseconds
     static int MAIN_LISTENER_DURATION = 20000;//20 seconds
 
     public static void main(String [] args){

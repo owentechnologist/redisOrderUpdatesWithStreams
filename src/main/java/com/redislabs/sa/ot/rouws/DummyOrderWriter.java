@@ -33,7 +33,9 @@ public class DummyOrderWriter {
     private long totalNumberToWrite = 1000;
     private String streamNameBase;
     private static Faker faker = new Faker();
-    private String[] stages = {"new","accepted","in_preparation","out_for_delivery","completed","cancelled"};
+    private String[] stages = {"new","accepted","in_preparation","out_for_delivery","completed"};
+
+    public DummyOrderWriter(){}
 
     public DummyOrderWriter(String streamNameBase, Pipeline jedisPipeline){
         this.jedisPipeline=jedisPipeline;
@@ -81,7 +83,11 @@ public class DummyOrderWriter {
     }
 
     public String getStreamName(String streamNameBase,int id){
-        return "X:"+streamNameBase+":"+id;
+        String pad = "0";
+        for(int padx=100000000;padx>id;padx=padx/10){
+            pad+="0";
+        }
+        return "X:"+streamNameBase+":"+pad+id;
     }
 
     public String getStringKeyName(String streamNameBase,int id){
@@ -95,11 +101,7 @@ public class DummyOrderWriter {
         if (jedis.exists(stringKeyName)) {
             //we use a String to keep track of the latest stage for that Order:
             nextStage = (int) jedis.incr(stringKeyName);
-            if(System.nanoTime()%222==0){
-                //every so often an order gets cancelled..
-                nextStage = 5;
-            }
-            if(nextStage<6){
+            if(nextStage<5){
                 //write to stream some order information and the stage for the order
             }else{
                 nextStage = 0;
@@ -110,17 +112,26 @@ public class DummyOrderWriter {
             nextStage = 0;
         }
         entryMap.put("stage",stages[nextStage]);
+        if((System.nanoTime()%10==0) && nextStage<4 && nextStage>0){
+            //every so often an order gets delayed..
+            entryMap.put("stage","delayed");
+            nextStage=10;
+        }
+        if(System.nanoTime()%120==0){
+            //every so often an order gets cancelled..
+            entryMap.put("stage","cancelled");
+        }
         //create or update the string that tracks the stage for this order:
         jedis.set(stringKeyName,""+nextStage);
         if(nextStage==0){
             // since this is a new order - we will add some food to it
-            for(int x = 0;x<System.nanoTime()%10;x++) {
+            for(int x = 1;x<System.nanoTime()%5;x++) {
                 entryMap.put("item"+x, faker.food().ingredient());
             }
             entryMap.put("contact_name",faker.name().fullName());
+            entryMap.put("order_cost",3*System.nanoTime()%5+(entryMap.size()*7.99)+"");
         }
         return entryMap;
     }
-
 }
 

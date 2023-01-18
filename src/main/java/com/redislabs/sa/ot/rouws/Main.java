@@ -31,7 +31,7 @@ import java.util.Set;
 
  *  TODO: These JSON objects are indexed so that they can be searched ad-hoc
  *  Execute the following command to create an index:
- FT.CREATE idx_rouws ON JSON PREFIX 1 orders:X SCHEMA $.CustomerID AS CustomerID TAG $.order_stages[*].item1 AS item1 TAG $.order_stages[*].item2 AS item2 TAG $.order_stages[*].item3 AS item3 TAG $.order_stages[*].item4 AS item4 TAG $.order_stages[*].item5 AS item5 TAG $.order_stages[*].contact_name AS contact_name TEXT SORTABLE $.order_stages[*].order_cost AS order_cost NUMERIC SORTABLE
+ FT.CREATE idx_rouws ON JSON PREFIX 1 customer_order_history:X SCHEMA $.CustomerID AS CustomerID TAG $.order_stages[*].item1 AS item1 TAG $.order_stages[*].item2 AS item2 TAG $.order_stages[*].item3 AS item3 TAG $.order_stages[*].item4 AS item4 TAG $.order_stages[*].item5 AS item5 TAG $.order_stages[*].contact_name AS contact_name TEXT SORTABLE $.order_stages[*].order_cost AS order_cost NUMERIC SORTABLE $.order_stages[*].stage AS order_stage TAG SORTABLE
  *  The JSON has multiple Orders stored within it for searching
  *  Searches will be possible at the order item level, contact name level and order state
  *  In this way, parent (customer) and child (orders) will be associated to one another
@@ -39,15 +39,14 @@ import java.util.Set;
  */
 public class Main {
 
-    static boolean VERBOSE=false; //TODO: limit output
+    static boolean VERBOSE=false;
     static int MAX_CONNECTIONS=1000;
     static String STREAM_NAME_BASE = "rouws:";
-    static String LISTENER_GROUP_NAME = "order_listeners"; //TODO: implement the streamWorkerGroup logic
-    static String PROCESSOR_GROUP_NAME = "order_to_json_processors"; //TODO: implement the streamWorkerGroup logic
-    static int NUMBER_OF_WORKER_THREADS = 1; //TODO: implement the streamWorkerGroup logic
-    static long WORKER_SLEEP_TIME = 50l;//milliseconds //TODO: implement the streamWorkerGroup logic
+    static String LISTENER_GROUP_NAME = "order_listeners"; //TODO: scale the streamWorkerGroup logic
+    static String PROCESSOR_GROUP_NAME = "order_to_json_processors"; //TODO: scale the streamWorkerGroup logic
+    static int NUMBER_OF_WORKER_THREADS = 1; //TODO: scale the streamWorkerGroup logic
+    static long WORKER_SLEEP_TIME = 50l;//milliseconds //TODO: scale the streamWorkerGroup logic
     public static int ADD_ON_DELTA_FOR_WORKER_NAME = 0;
-    static int WRITER_BATCH_SIZE = 200; //TODO: reconsider will this use case ever fit using batches?
     static long WRITER_SLEEP_TIME = 50l;//milliseconds
     static int NUMBER_OF_WRITER_THREADS = 1;
     static int HOW_MANY_ENTRIES = 100;
@@ -114,10 +113,6 @@ public class Main {
                 int argIndex = argList.indexOf("--howmanywriters");
                 NUMBER_OF_WRITER_THREADS = Integer.parseInt(argList.get(argIndex + 1));
             }
-            if (argList.contains("--writerbatchsize")) {
-                int argIndex = argList.indexOf("--writerbatchsize");
-                WRITER_BATCH_SIZE = Integer.parseInt(argList.get(argIndex + 1));
-            }
             if (argList.contains("--writersleeptime")) {
                 int argIndex = argList.indexOf("--writersleeptime");
                 WRITER_SLEEP_TIME = Integer.parseInt(argList.get(argIndex + 1));
@@ -146,7 +141,7 @@ public class Main {
             for(int w=0;w<NUMBER_OF_WORKER_THREADS;w++){
                 StreamEventMapProcessor processor =
                         new StreamEventToJSONProcessor()
-                                .setJedisConnectionHelper(connectionHelper)
+                                .setJedisPooled(connectionHelper.getPooledJedis())
                                 .setSleepTime(WORKER_SLEEP_TIME)
                                 .setVerbose(VERBOSE);
                 String workerName = "worker"+(w+ADD_ON_DELTA_FOR_WORKER_NAME);
@@ -158,7 +153,6 @@ public class Main {
         DummyOrderWriter dummyOrderWriter = null;
         for(int wt=0;wt<NUMBER_OF_WRITER_THREADS;wt++){
             dummyOrderWriter = new DummyOrderWriter(STREAM_NAME_BASE, connectionHelper.getPipeline())
-                    .setBatchSize(WRITER_BATCH_SIZE)
                     .setJedisPooled(connectionHelper.getPooledJedis())
                     .setSleepTime(WRITER_SLEEP_TIME)
                     .setTotalNumberToWrite(HOW_MANY_ENTRIES);

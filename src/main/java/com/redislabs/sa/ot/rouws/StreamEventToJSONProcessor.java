@@ -13,18 +13,18 @@ import java.util.concurrent.atomic.AtomicLong;
 
 public class StreamEventToJSONProcessor implements StreamEventMapProcessor {
     static AtomicLong counter = new AtomicLong();
-    private JedisConnectionHelper jedisConnectionHelper = null;
+    private JedisPooled jedis = null;
     private Long sleepTime = null;//millis
     private boolean verbose = false;
-    private String JSON_KEY_PREFIX="orders:";
+    private String JSON_KEY_PREFIX="customer_order_history:";
 
     public StreamEventToJSONProcessor setVerbose(boolean verbose){
         this.verbose=verbose;
         return this;
     }
 
-    public StreamEventToJSONProcessor setJedisConnectionHelper(JedisConnectionHelper jedisConnectionHelper){
-        this.jedisConnectionHelper=jedisConnectionHelper;
+    public StreamEventToJSONProcessor setJedisPooled(JedisPooled jedisPooled){
+        this.jedis=jedisPooled;
         return this;
     }
 
@@ -35,7 +35,7 @@ public class StreamEventToJSONProcessor implements StreamEventMapProcessor {
 
     @Override
     public void processStreamEventMap(String streamName,Map<String, StreamEntry> payload) {
-        JedisPooled jedis = jedisConnectionHelper.getPooledJedis();
+        //JedisPooled jedisPooled = jedisConnectionHelper.getPooledJedis();
         printMessageSparingly("StreamEventToJSONProcessor.processStreamEventMap..."+payload);
 
         JSONObject orderStage = new JSONObject();

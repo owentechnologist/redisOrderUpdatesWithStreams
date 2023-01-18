@@ -38,7 +38,7 @@ public class RedisStreamWorkerGroupHelper {
                 printMessageSparingly(this.getClass().getName() + " : Result returned when creating a new ConsumerGroup " + thing);
             } catch (JedisDataException jde) {
                 if (jde.getMessage().contains("BUSYGROUP")) {
-                    System.out.println("ConsumerGroup " + consumerGroupName + " already exists -- continuing");
+                    printMessageSparingly("ConsumerGroup " + consumerGroupName + " already exists -- continuing");
                 } else {
                     jde.printStackTrace();
                 }

@@ -29,7 +29,6 @@ public class DummyOrderWriter {
     private Pipeline jedisPipeline;
     private JedisPooled jedis;
     private long sleepTime = 50l;//milliseconds
-    private long batchSize = 200;
     private long totalNumberToWrite = 1000;
     private String streamNameBase;
     private static Faker faker = new Faker();
@@ -49,11 +48,6 @@ public class DummyOrderWriter {
 
     public DummyOrderWriter setTotalNumberToWrite(long totalNumberToWrite){
         this.totalNumberToWrite=totalNumberToWrite;
-        return this;
-    }
-
-    public DummyOrderWriter setBatchSize(long batchSize){
-        this.batchSize=batchSize;
         return this;
     }
 
@@ -78,6 +72,7 @@ public class DummyOrderWriter {
                         Thread.sleep(sleepTime);
                     }catch(InterruptedException ie){}
                 }
+                System.out.println(this.getClass().getName()+": Wrote "+(totalWrittenCounter-1)+" messages.  Done.");
             }
         }).start();
     }

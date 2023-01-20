@@ -1,4 +1,4 @@
-## This program is different from other Stream-based examples in that it uses potentially thousands or millions of Streams to allow for updates to thousands or millions of customerAccounts to be processed and consumed by interested Consumers 
+## This program is different from other Stream-based examples in that it uses potentially thousands  of Streams to allow for updates to thousands or millions of customerAccounts to be processed and consumed by interested Consumers 
 ### This program models a simple food delivery service
 It shows how to create streams for each customer that will:
 * 1) record their orders
@@ -17,15 +17,16 @@ mvn compile exec:java -Dexec.cleanupDaemonThreads=false -Dexec.args="--host <hos
 
 ### * Using two or more separate shells, you can split the work up so that one instance runs the workers that consumer events, and the other writes new events
 
-### 1. to run this program as an event consumer only with a worker capable of handling 4000 streams use:
+## --routingvaluecount determines how many streams are created
+### 1. to run this program as an event consumer only with 2 workers/stream capable of handling 500 streams and 1000 connections use:
 ``` 
- mvn compile exec:java -Dexec.cleanupDaemonThreads=false -Dexec.args="--host redis-10400.homelab.local --port 10400 --howmanyworkers 1 --maxconnections 5000 --workersleeptime 20 --howmanywriters 0 --howmanyentries 20000"
+mvn compile exec:java -Dexec.cleanupDaemonThreads=false -Dexec.args="--host redis-10400.homelab.local --port 10400 --howmanyworkers 2 --maxconnections 1200 --workersleeptime 20 --howmanywriters 0 --routingvaluecount 500"
 ```
 
 ### 2. To run this program as an event-publisher only with 50 writer threads for a couple of thousand writes / second and with a large target # of entries
 
 ```
-mvn compile exec:java -Dexec.cleanupDaemonThreads=false -Dexec.args="--host redis-10400.homelab.local --port 10400 --howmanyworkers 0 --howmanywriters 50 --howmanyentries 20000"
+mvn compile exec:java -Dexec.cleanupDaemonThreads=false -Dexec.args="--host redis-10400.homelab.local --port 10400 --howmanyworkers 0 --howmanywriters 50 --howmanyentries 200000 --routingvaluecount 500"
 ```
 ### Note you can also specify --username and --password
 
@@ -45,30 +46,69 @@ Various other arguments can be passed to this program (see the main method for t
 
 ### Streams are now being processed and JSON objects being created for each one
 --SCALING THIS APPROACH IS BEING INVESTIGATED
+* the issue is with keeping millions of connections alive - not feasible
+* tens of thousands of connections can be achieved against a large cluster with
+robust network infrastructure
+* better - might be to let the clients pull data from the JSON docs
+* question - how to notify clients when something interesting occurs?
+* answer - a team of worker threads could perform callbacks based on stream events they get
+* so - scale the streams by region or something  
+  (so not give each customer their own stream)
+  and scale the workers on those streams outside of Redis
+* TODO: Interested parties wanting a callback can register for callbacks
+* workers deliver the callbacks - the workers scale outside of redis
+* upon receiving a notification that there is interesting information available:
 
-* Problem statement:
+#### Clients can issue JSON calls to fetch the latest info....
+```
+JSON.ARRLEN customer_order_history:X:rouws::0000002700{0} order_stages
+(integer) 2
+```
+#### Could be used by client to compare the info they have locally with the info available
+#### They could then fetch the last element of such an array:
+```
+> JSON.GET customer_order_history:X:rouws::0000000200{200} order_stages[0]
+"{\"order_cost\":39.95,\"item2\":\"Licorice\",\"contact_name\":\"Kiara Johns\",\"item1\":\"Broccolini\",\"stage\":\"new\",\"orderID\":\"rouws200order200__2\",\"item3\":\"Kudzu\"}"
 
-Assuming no more than 10K connections at any one time - how to listen for changes on 10 million or more streams?
-Also assume that updates are not more frequent on average than 1/second/stream 
-There are likely to be long and frequent quiet periods
+> JSON.RESP customer_order_history:X:rouws::0000000200{200} order_stages[0].contact_name
+"Kiara Johns"
+```
 
-* thoughts: there can be worker groups with no active members...
-1. Have helper listen to a single (or small number of) update stream(s) which informs it of the update(s) that actually happened
-2. Have helper assign a worker to the actual active stream to process the latest (unprocessed) messages
-
+### Clients may also want to search across multiple JSON docs for - let's say cancelled orders:
 ### You can add a search index using the following command:
 ``` 
-FT.CREATE idx_rouws ON JSON PREFIX 1 customer_order_history:X SCHEMA $.CustomerID AS CustomerID TAG $.order_stages[*].item1 AS item1 TAG $.order_stages[*].item2 AS item2 TAG $.order_stages[*].item3 AS item3 TAG $.order_stages[*].item4 AS item4 TAG $.order_stages[*].item5 AS item5 TAG $.order_stages[*].contact_name AS contact_name TEXT SORTABLE $.order_stages[*].order_cost AS order_cost NUMERIC SORTABLE $.order_stages[*].stage AS order_stage TAG SORTABLE
+FT.CREATE idx_rouws ON JSON PREFIX 1 customer_order_history:X SCHEMA $.RegionID AS region_id TAG $.order_stages[*].orderID AS order_id TAG SORTABLE $.order_stages[*].item1 AS item1 TAG $.order_stages[*].item2 AS item2 TAG $.order_stages[*].item3 AS item3 TAG $.order_stages[*].item4 AS item4 TAG $.order_stages[*].item5 AS item5 TAG $.order_stages[*].contact_name AS order_contact TEXT SORTABLE $.order_stages[*].order_cost AS order_cost NUMERIC SORTABLE $.order_stages[*].stage AS order_stage TAG SORTABLE
 ```
 
 ### You can search like this:
 
 ```
-FT.SEARCH idx_rouws @order_stage:{cancelled} return 3 order_cost CustomerID order_stage limit 0 1
+> FT.SEARCH idx_rouws @order_stage:{cancelled} return 6 '$.order_stages[?(@.stage =~ "cancelled")].orderID' AS MATCHING_ORDER '$.order_stages[?(@.stage =~ "cancelled")].stage' AS MATCHING_STAGE limit 0 1
+1) "387"
+2) "customer_order_history:X:rouws::0000000037{37}"
+3) 1) "MATCHING_ORDER"
+   2) "rouws37order37__31"
+   3) "MATCHING_STAGE"
+   4) "cancelled"
+
+> FT.SEARCH idx_rouws "@order_id:{rouws37order37__31}" return 3 '$.order_stages[?(@.stage =~ "new")]' AS MATCHING_ORDER limit 0 1
+1) "1"
+2) "customer_order_history:X:rouws::0000000037{37}"
+3) 1) "MATCHING_ORDER"
+   2) "{\"order_cost\":49.94,\"item2\":\"Trout\",\"contact_name\":\"Miss Bartholome Turcotte\",\"item1\":\"Camembert\",\"stage\":\"new\",\"orderID\":\"rouws37order37__3\",\"item4\":\"Kiwi Fruit\",\"item3\":\"Brown Flour\"}"
 ```
 ### And Aggregate like this:
 ``` 
-FT.AGGREGATE idx_rouws "@item1:{Ham | Banana} @order_stage:{new}" GROUPBY 1 @order_cost REDUCE COUNT 0 AS number_matched DIALECT 1
+> FT.AGGREGATE idx_rouws "@item1:{Ham | Banana} @order_stage:{new}" GROUPBY 1 @order_cost REDUCE COUNT 0 AS number_matched LIMIT 0 2
+1) "42"
+2) 1) "order_cost"
+   2) "40.95"
+   3) "number_matched"
+   4) "3"
+3) 1) "order_cost"
+   2) "41.95"
+   3) "number_matched"
+   4) "4"
 ```
 
 

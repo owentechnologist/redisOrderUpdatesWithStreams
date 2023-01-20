@@ -1,7 +1,7 @@
 package com.redislabs.sa.ot.rouws;
 
-import com.redislabs.sa.ot.streamutils.RedisStreamWorkerGroupHelper;
-import com.redislabs.sa.ot.streamutils.StreamEventMapProcessor;
+import com.redislabs.sa.ot.streamutils.RedisStreamWorkerGroupHelperV2;
+import com.redislabs.sa.ot.streamutils.StreamEventMapProcessorV2;
 import redis.clients.jedis.resps.StreamInfo;
 
 import java.util.ArrayList;
@@ -40,6 +40,7 @@ import java.util.Set;
 public class Main {
 
     static boolean VERBOSE=false;
+    static int PRINT_OUT_SKIP_SIZE =100;//used to limit the times messages are written to the screen
     static int MAX_CONNECTIONS=1000;
     static String STREAM_NAME_BASE = "rouws:";
     static String LISTENER_GROUP_NAME = "order_listeners"; //TODO: scale the streamWorkerGroup logic
@@ -51,6 +52,7 @@ public class Main {
     static int NUMBER_OF_WRITER_THREADS = 1;
     static int HOW_MANY_ENTRIES = 100;
     static int MAIN_LISTENER_DURATION = 20000;//20 seconds
+    static int ROUTING_VALUE_COUNT = 2; // by default, divide the streams into 2 groups / slots)
 
     public static void main(String [] args){
         ArrayList<String> argList = null;
@@ -80,6 +82,14 @@ public class Main {
             if (argList.contains("--host")) {
                 int argIndex = argList.indexOf("--host");
                 host = argList.get(argIndex + 1);
+            }
+            if (argList.contains("--printoutskipsize")) {
+                int argIndex = argList.indexOf("--printoutskipsize");
+                PRINT_OUT_SKIP_SIZE = Integer.parseInt(argList.get(argIndex + 1));
+            }
+            if (argList.contains("--routingvaluecount")) {
+                int argIndex = argList.indexOf("--routingvaluecount");
+                ROUTING_VALUE_COUNT = Integer.parseInt(argList.get(argIndex + 1));
             }
             if (argList.contains("--port")) {
                 int argIndex = argList.indexOf("--port");
@@ -129,33 +139,57 @@ public class Main {
 
         JedisConnectionHelper connectionHelper = new JedisConnectionHelper(JedisConnectionHelper.buildURI(host,port,userName,password),MAX_CONNECTIONS);
 
-        if(NUMBER_OF_WORKER_THREADS>0){
-            ArrayList<String> streamNamesList = new ArrayList<>();
+        if(NUMBER_OF_WORKER_THREADS>0) { // we will have at least one consumer of streams:
+            ArrayList<String> streamNamesFullList = new ArrayList<>();
             DummyOrderWriter tempDummyOrderWriter = new DummyOrderWriter();
-            for(int x=0;x<(HOW_MANY_ENTRIES/5);x++) {
-                streamNamesList.add(tempDummyOrderWriter.getStreamName(STREAM_NAME_BASE, x));
+            int loopValue = (HOW_MANY_ENTRIES / ROUTING_VALUE_COUNT);
+            if(loopValue<ROUTING_VALUE_COUNT){loopValue=ROUTING_VALUE_COUNT;}
+            for (int x = 0; x < loopValue; x++) { //many entries/order/Stream
+                streamNamesFullList.add(tempDummyOrderWriter.getRouteEnrichedStreamName(ROUTING_VALUE_COUNT,STREAM_NAME_BASE, x));
             }
-            RedisStreamWorkerGroupHelper redisStreamWorkerGroupHelper =
-                new RedisStreamWorkerGroupHelper(streamNamesList, connectionHelper.getPooledJedis(), VERBOSE);
-            redisStreamWorkerGroupHelper.createConsumerGroup(PROCESSOR_GROUP_NAME);
-            for(int w=0;w<NUMBER_OF_WORKER_THREADS;w++){
-                StreamEventMapProcessor processor =
-                        new StreamEventToJSONProcessor()
-                                .setJedisPooled(connectionHelper.getPooledJedis())
-                                .setSleepTime(WORKER_SLEEP_TIME)
-                                .setVerbose(VERBOSE);
-                String workerName = "worker"+(w+ADD_ON_DELTA_FOR_WORKER_NAME);
-                for(String streamName:streamNamesList) {
-                    redisStreamWorkerGroupHelper.namedGroupConsumerStartListening(streamName,workerName, processor);
+            int fullNameCount = streamNamesFullList.size();
+            int divisor = (int) fullNameCount / ROUTING_VALUE_COUNT;
+            if(divisor<1){divisor=1;}
+            System.out.println("fullnameCount = " + fullNameCount + " divisor = " + divisor);
+            for (int batch = 0; batch < ROUTING_VALUE_COUNT; batch++) {
+                // we want to produce ROUTING_VALUE_COUNT-many streamNameLists and also that many RedisStreamWorkerGroupHelperV2's
+                ArrayList<String> streamNamesList = new ArrayList<>();
+                for (int y = 0; y < streamNamesFullList.size(); y++) {
+                    if (y % ROUTING_VALUE_COUNT == batch) {
+                        //collect the ones that are in this batch:
+                        streamNamesList.add(streamNamesFullList.get(y));
+                    }
+                }
+
+                RedisStreamWorkerGroupHelperV2 redisStreamWorkerGroupHelperV2 =
+                        new RedisStreamWorkerGroupHelperV2()
+                                .setPooledJedis(connectionHelper.getPooledJedis())
+                                .setStreamNamesArrayList(streamNamesList)
+                                .setVerbose(VERBOSE)
+                                .setPrintoutSkipSize(PRINT_OUT_SKIP_SIZE);
+                redisStreamWorkerGroupHelperV2.createConsumerGroup(PROCESSOR_GROUP_NAME);
+                for (int w = 0; w < NUMBER_OF_WORKER_THREADS; w++) {
+                    StreamEventMapProcessorV2 processor =
+                            new StreamEventToJSONProcessorV2()
+                                    .setJedisPooled(connectionHelper.getPooledJedis())
+                                    .setSleepTime(WORKER_SLEEP_TIME)
+                                    .setVerbose(VERBOSE)
+                                    .setPrintoutSkipSize(PRINT_OUT_SKIP_SIZE);
+                    String workerName = "worker" + (w + ADD_ON_DELTA_FOR_WORKER_NAME);
+                    for (String streamName : streamNamesList) {
+                        redisStreamWorkerGroupHelperV2.namedGroupConsumerStartListeningToAllStreams(workerName, processor);
+                    }
                 }
             }
         }
         DummyOrderWriter dummyOrderWriter = null;
         for(int wt=0;wt<NUMBER_OF_WRITER_THREADS;wt++){
-            dummyOrderWriter = new DummyOrderWriter(STREAM_NAME_BASE, connectionHelper.getPipeline())
+            dummyOrderWriter = new DummyOrderWriter()
                     .setJedisPooled(connectionHelper.getPooledJedis())
                     .setSleepTime(WRITER_SLEEP_TIME)
-                    .setTotalNumberToWrite(HOW_MANY_ENTRIES);
+                    .setRoutingValueCount(ROUTING_VALUE_COUNT)
+                    .setTotalNumberToWrite(HOW_MANY_ENTRIES)
+                    .setStreamNameBase(STREAM_NAME_BASE);
             dummyOrderWriter.kickOffStreamEvents();
         }
 
@@ -163,7 +197,7 @@ public class Main {
         while(System.currentTimeMillis()<startTime+MAIN_LISTENER_DURATION) {//20 seconds of this:by default
             try {
                 Thread.sleep(WORKER_SLEEP_TIME);
-                String streamKeyName =  dummyOrderWriter.getStreamName (STREAM_NAME_BASE,(int)System.nanoTime() % HOW_MANY_ENTRIES);
+                String streamKeyName =  dummyOrderWriter.getRouteEnrichedStreamName(ROUTING_VALUE_COUNT,STREAM_NAME_BASE,(int)System.nanoTime() % HOW_MANY_ENTRIES);
                 StreamInfo message = connectionHelper.getPooledJedis().xinfoStream(streamKeyName);
                 Map<String, String> entryFields = message.getLastEntry().getFields();
                 Set<String> keySet = entryFields.keySet();

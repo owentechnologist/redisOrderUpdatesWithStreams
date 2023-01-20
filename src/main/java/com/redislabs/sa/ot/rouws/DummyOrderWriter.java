@@ -2,7 +2,6 @@ package com.redislabs.sa.ot.rouws;
 
 import com.github.javafaker.Faker;
 import redis.clients.jedis.JedisPooled;
-import redis.clients.jedis.Pipeline;
 import redis.clients.jedis.params.XAddParams;
 
 import java.util.HashMap;
@@ -26,19 +25,26 @@ import java.util.Map;
  */
 public class DummyOrderWriter {
 
-    private Pipeline jedisPipeline;
     private JedisPooled jedis;
+    public static final int STAGE_NEW=0,STAGE_ACCEPTED=1,STAGE_IN_PREPARATION=2,STAGE_OUT_FOR_DELIVERY=3,STAGE_COMPLETED=4,STAGE_CANCELLED=10;
+    private String[] stages = {"new","accepted","in_preparation","out_for_delivery","completed"};
+    private int routingValueCount=2;//default is all events go in 2 streams
     private long sleepTime = 50l;//milliseconds
     private long totalNumberToWrite = 1000;
     private String streamNameBase;
     private static Faker faker = new Faker();
-    private String[] stages = {"new","accepted","in_preparation","out_for_delivery","completed"};
 
-    public DummyOrderWriter(){}
+    public DummyOrderWriter(){}//default constructor
 
-    public DummyOrderWriter(String streamNameBase, Pipeline jedisPipeline){
-        this.jedisPipeline=jedisPipeline;
+    public DummyOrderWriter setRoutingValueCount(int routingValueCount){
+        this.routingValueCount=routingValueCount;
+        return this;
+    }
+
+    public DummyOrderWriter setStreamNameBase(String streamNameBase){
         this.streamNameBase=streamNameBase;
+        System.out.println(this.getClass().getName()+"... setStreamBase() "+streamNameBase);
+        return this;
     }
 
     public DummyOrderWriter setJedisPooled(JedisPooled jedis){
@@ -64,9 +70,11 @@ public class DummyOrderWriter {
                 long totalWrittenCounter = 1;
                 while (totalWrittenCounter<=totalNumberToWrite) {
                     //generate a stream for the next order event:
-                    int custID = (int) (System.nanoTime()%(totalNumberToWrite/5));
-                    map1 = buildCustomerOrderEvent(getStringKeyName(streamNameBase,custID));
-                    jedis.xadd(getStreamName(streamNameBase,custID), XAddParams.xAddParams(), map1);
+                    //The number of streams is equal to routingValueCount
+                    int streamID = (int) (System.nanoTime()%(totalNumberToWrite/routingValueCount));
+
+                    map1 = buildCustomerOrderEvent(getRouteEnrichedHashKeyName(routingValueCount,streamNameBase,streamID));
+                    jedis.xadd(getRouteEnrichedStreamName(routingValueCount,streamNameBase,streamID), XAddParams.xAddParams(), map1);
                     totalWrittenCounter++;
                     try{
                         Thread.sleep(sleepTime);
@@ -77,6 +85,13 @@ public class DummyOrderWriter {
         }).start();
     }
 
+    //We need to allow for scenarios where multiple streams are read from in the same call
+    //this demands that all of the streams share a routing value so they live in the same slot
+    public String getRouteEnrichedStreamName(int routingValueCount,String streamNameBase,int id){
+        String routingValue = "{"+(id%routingValueCount)+"}";
+        return  getStreamName(streamNameBase,id)+routingValue;
+    }
+
     public String getStreamName(String streamNameBase,int id){
         String pad = "0";
         for(int padx=100000000;padx>id;padx=padx/10){
@@ -84,47 +99,61 @@ public class DummyOrderWriter {
         }
         return "X:"+streamNameBase+":"+pad+id;
     }
-
-    public String getStringKeyName(String streamNameBase,int id){
-        return streamNameBase+":"+id+":stage";
+    //Same as for the Stream:
+    public String getRouteEnrichedHashKeyName(int routingValueCount,String streamNameBase,int id){
+        String routingValue = "{"+(id%routingValueCount)+"}";
+        return  getHashKeyName(streamNameBase,id)+routingValue;
     }
 
-    private HashMap<String,String> buildCustomerOrderEvent(String stringKeyName ) {
+    public String getHashKeyName(String streamNameBase,int id){
+        return streamNameBase+":"+id+":order";
+    }
+
+    private HashMap<String,String> buildCustomerOrderEvent(String hashKeyName ) {
+        String orderIDBase=hashKeyName.replaceAll("\\:","");
+        orderIDBase=orderIDBase.replaceAll("\\{","");
+        orderIDBase=orderIDBase.replaceAll("}","");
         HashMap<String,String> entryMap = new HashMap<>();
-        int nextStage = 0;
+        int nextStage = STAGE_NEW;
+        boolean newCustomer = true;
+        long orderSeed=0;
         // determine a stage for event:
-        if (jedis.exists(stringKeyName)) {
-            //we use a String to keep track of the latest stage for that Order:
-            nextStage = (int) jedis.incr(stringKeyName);
-            if(nextStage<5){
-                //write to stream some order information and the stage for the order
-            }else{
-                nextStage = 0;
-                //change stage to new again (same customer is getting a new order going
+        if (jedis.exists(hashKeyName)) {
+            newCustomer=false;
+            //we use a Hash to keep track of the latest stage for that Order and the latest OrderID for a customer:
+            nextStage = (int) jedis.hincrBy(hashKeyName,"stage",1);
+            if(nextStage>=5){//cancelled or incremented beyond available options
+                nextStage = STAGE_NEW;
             }
         }else{
-            // we will create a String to represent the last known stage for the CustomerOrders
-            nextStage = 0;
+            orderSeed = (long) jedis.hincrBy(hashKeyName,"orderSeed",1);
         }
         entryMap.put("stage",stages[nextStage]);
-        if((System.nanoTime()%10==0) && nextStage<4 && nextStage>0){
+        if((System.nanoTime()%10==0) && nextStage<STAGE_COMPLETED && nextStage>STAGE_NEW ){
             //every so often an order gets delayed..
             entryMap.put("stage","delayed");
-            nextStage=10;
         }
-        if(System.nanoTime()%120==0){
+        if(System.nanoTime()%120==0 && (!newCustomer) && nextStage>STAGE_NEW){
             //every so often an order gets cancelled..
             entryMap.put("stage","cancelled");
+            nextStage=STAGE_CANCELLED;//using 10 as a flag to indicate a new orderID is needed
         }
         //create or update the string that tracks the stage for this order:
-        jedis.set(stringKeyName,""+nextStage);
-        if(nextStage==0){
+        jedis.hset(hashKeyName,"stage",""+nextStage);
+        if(nextStage==STAGE_NEW){
+            orderSeed = (long) jedis.hincrBy(hashKeyName,"orderSeed",1);
             // since this is a new order - we will add some food to it
-            for(int x = 1;x<System.nanoTime()%5;x++) {
+            for(int x = 1;x<(System.nanoTime()%15)+1;x++) {
                 entryMap.put("item"+x, faker.food().ingredient());
             }
             entryMap.put("contact_name",faker.name().fullName());
             entryMap.put("order_cost",3*System.nanoTime()%5+(entryMap.size()*7.99)+"");
+            entryMap.put("orderID",orderIDBase+"__"+orderSeed);
+        }else if(nextStage>STAGE_NEW){ //we are adding the orderID to the entry that captures any other order stage
+            try {
+                orderSeed = Long.parseLong(jedis.hget(hashKeyName, "orderSeed"));
+                entryMap.put("orderID", orderIDBase + "__" + orderSeed);
+            }catch(java.lang.NumberFormatException nfe){System.out.println("When faced with Number Format Exception... DummyOrderWriter built this orderID : "+orderIDBase + "__" + orderSeed); }//System.exit(0);}
         }
         return entryMap;
     }

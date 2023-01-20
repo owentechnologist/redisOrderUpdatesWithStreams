@@ -38,7 +38,23 @@ mvn compile exec:java -Dexec.cleanupDaemonThreads=false -Dexec.args="--host redi
 
 ### An interested listener can register for realtime updates to a particular Stream
 
-The Main class loops through random streams, picking up the last message written to each one.
+The Main class loops through random streams, using this code:
+
+``` 
+try {
+       Thread.sleep(WORKER_SLEEP_TIME);
+       String streamKeyName =  dummyOrderWriter.getRouteEnrichedStreamName(ROUTING_VALUE_COUNT,STREAM_NAME_BASE,(int)System.nanoTime() % HOW_MANY_ENTRIES);
+       StreamInfo message = connectionHelper.getPooledJedis().xinfoStream(streamKeyName);
+       Map<String, String> entryFields = message.getLastEntry().getFields();
+       Set<String> keySet = entryFields.keySet();
+       System.out.println("\t Got message/entry from Stream with key name of: "+streamKeyName);
+       for (String key : keySet) {
+           System.out.println(key + ": " + entryFields.get(key));
+       }
+   } catch (Throwable t) { //should we tell someone about the Throwable?
+   }
+```
+picking up the last message written to each one.
 
 You can easily Browse the Streams and other keys in Redis using RedisInsight
 

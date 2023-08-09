@@ -43,7 +43,7 @@ The Main class loops through random streams, using this code:
 ``` 
 try {
        Thread.sleep(WORKER_SLEEP_TIME);
-       String streamKeyName =  dummyOrderWriter.getRouteEnrichedStreamName(ROUTING_VALUE_COUNT,STREAM_NAME_BASE,(int)System.nanoTime() % HOW_MANY_ENTRIES);
+       String streamKeyName =  dummyOrderWriter.getRouteEnrichedStreamName(ROUTING_VALUE_COUNT,STREAM_NAME_BASE,(int)System.nanoTime() % ROUTING_VALUE_COUNT);
        StreamInfo message = connectionHelper.getPooledJedis().xinfoStream(streamKeyName);
        Map<String, String> entryFields = message.getLastEntry().getFields();
        Set<String> keySet = entryFields.keySet();
@@ -77,7 +77,7 @@ robust network infrastructure
 
 #### Clients can issue JSON calls to fetch the latest info....
 ```
-JSON.ARRLEN customer_order_history:X:rouws::0000002700{0} order_stages
+JSON.ARRLEN customer_order_history:X:rouws::0000000200{200} order_stages
 (integer) 2
 ```
 #### Could be used by client to compare the info they have locally with the info available
@@ -92,14 +92,19 @@ JSON.ARRLEN customer_order_history:X:rouws::0000002700{0} order_stages
 
 ### Clients may also want to search across multiple JSON docs for - let's say cancelled orders:
 ### You can add a search index using the following command:
+```
+FT.CREATE idx_rouws ON JSON PREFIX 1 customer_order_history:X SCHEMA $.RegionID AS region_id TAG $.order_stages[*].orderID AS order_id TAG $.order_stages[*].item1 AS item1 TAG $.order_stages[*].item2 AS item2 TAG $.order_stages[*].item3 AS item3 TAG $.order_stages[*].item4 AS item4 TAG $.order_stages[*].item5 AS item5 TAG $.order_stages[*].contact_name AS order_contact TEXT SORTABLE $.order_stages[*].order_cost AS order_cost NUMERIC SORTABLE $.order_stages[*].stage AS order_stage TAG
+```
+
 ``` 
 FT.CREATE idx_rouws ON JSON PREFIX 1 customer_order_history:X SCHEMA $.RegionID AS region_id TAG $.order_stages[*].orderID AS order_id TAG SORTABLE $.order_stages[*].item1 AS item1 TAG $.order_stages[*].item2 AS item2 TAG $.order_stages[*].item3 AS item3 TAG $.order_stages[*].item4 AS item4 TAG $.order_stages[*].item5 AS item5 TAG $.order_stages[*].contact_name AS order_contact TEXT SORTABLE $.order_stages[*].order_cost AS order_cost NUMERIC SORTABLE $.order_stages[*].stage AS order_stage TAG SORTABLE
 ```
 
+
 ### You can search like this:
 
 ```
-> FT.SEARCH idx_rouws @order_stage:{cancelled} return 6 '$.order_stages[?(@.stage =~ "cancelled")].orderID' AS MATCHING_ORDER '$.order_stages[?(@.stage =~ "cancelled")].stage' AS MATCHING_STAGE limit 0 1
+> FT.SEARCH idxa_rouws @order_stage:{cancelled} return 6 '$.order_stages[?(@.stage =~ "cancelled")].orderID' AS MATCHING_ORDER '$.order_stages[?(@.stage =~ "cancelled")].stage' AS MATCHING_STAGE limit 0 1
 1) "387"
 2) "customer_order_history:X:rouws::0000000037{37}"
 3) 1) "MATCHING_ORDER"
@@ -107,7 +112,7 @@ FT.CREATE idx_rouws ON JSON PREFIX 1 customer_order_history:X SCHEMA $.RegionID 
    3) "MATCHING_STAGE"
    4) "cancelled"
 
-> FT.SEARCH idx_rouws "@order_id:{rouws37order37__31}" return 3 '$.order_stages[?(@.stage =~ "new")]' AS MATCHING_ORDER limit 0 1
+> FT.SEARCH idxa_rouws "@order_id:{rouws37*}" return 3 '$.order_stages[?(@.stage =~ "new")]' AS MATCHING_ORDER limit 0 1
 1) "1"
 2) "customer_order_history:X:rouws::0000000037{37}"
 3) 1) "MATCHING_ORDER"
@@ -115,7 +120,7 @@ FT.CREATE idx_rouws ON JSON PREFIX 1 customer_order_history:X SCHEMA $.RegionID 
 ```
 ### And Aggregate like this:
 ``` 
-> FT.AGGREGATE idx_rouws "@item1:{Ham | Banana} @order_stage:{new}" GROUPBY 1 @order_cost REDUCE COUNT 0 AS number_matched LIMIT 0 2
+> FT.AGGREGATE idxa_rouws "@item1:{Liver|Ham|Banana} @order_stage:{new}" GROUPBY 1 @order_cost REDUCE COUNT 0 AS number_matched LIMIT 0 2
 1) "42"
 2) 1) "order_cost"
    2) "40.95"

@@ -55,7 +55,8 @@ public class RedisStreamWorkerGroupHelperV2 {
                 //all streams have the same groupname allowing multiple streams to be read in a single XREADGroup later on
                 String thing = jedisPooled.xgroupCreate(streamName, this.consumerGroupName, nextID, true);
                 printMessageSparingly(this.getClass().getName() + " : Result returned when creating a new ConsumerGroup " + thing);
-            } catch (JedisDataException jde) {
+                Thread.sleep(50l);
+            } catch (Exception jde) {
                 if (jde.getMessage().contains("BUSYGROUP")) {
                     printMessageSparingly("ConsumerGroup " + consumerGroupName + " already exists -- continuing");
                 } else {
@@ -124,6 +125,11 @@ public class RedisStreamWorkerGroupHelperV2 {
                         //jedisPooled.xdel(key, lastSeenID);// Use trim in some other maintenance operation instead of delete here
                     }catch(NullPointerException npe){
                         printMessageSparingly("No new messages on the streams at this time");
+                    }catch(redis.clients.jedis.exceptions.JedisConnectionException jce){
+                        printMessageSparingly(" Unexpected end of stream.\n" +
+                                "at com.redislabs.sa.ot.streamutils.RedisStreamWorkerGroupHelperV2$1.run ");
+                        System.out.println(" Unexpected end of stream.\n" +
+                                "at com.redislabs.sa.ot.streamutils.RedisStreamWorkerGroupHelperV2$1.run ");
                     }
                 }
             }

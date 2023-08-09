@@ -19,6 +19,11 @@ public class StreamEventToJSONProcessorV2 implements StreamEventMapProcessorV2 {
     private int skipSize=1000;
     private long printcounter = 0;
 
+    public StreamEventToJSONProcessorV2 setJSONKeyPrefix(String jsonKeyPrefix){
+        this.JSON_KEY_PREFIX=jsonKeyPrefix;
+        return this;
+    }
+
     public StreamEventToJSONProcessorV2 setVerbose(boolean verbose){
         this.verbose=verbose;
         return this;
